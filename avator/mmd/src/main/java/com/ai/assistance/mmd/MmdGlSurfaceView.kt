@@ -9,6 +9,7 @@ import android.os.Handler
 import android.os.Looper
 import android.util.AttributeSet
 import android.util.Log
+import android.view.MotionEvent
 import java.util.concurrent.atomic.AtomicInteger
 import javax.microedition.khronos.egl.EGLConfig
 import javax.microedition.khronos.opengles.GL10
@@ -38,6 +39,7 @@ class MmdGlSurfaceView @JvmOverloads constructor(
         setRenderer(renderer)
         renderMode = RENDERMODE_CONTINUOUSLY
         requestHighRefreshRateIfSupported()
+        installLookAtTouchListener()
     }
 
     fun setModelPath(path: String) {
@@ -67,6 +69,36 @@ class MmdGlSurfaceView @JvmOverloads constructor(
     fun setCameraTargetHeight(height: Float) {
         queueEvent {
             renderer.setCameraTargetHeight(height)
+        }
+    }
+
+    fun setLookAt(x: Float, y: Float) {
+        queueEvent {
+            renderer.setLookAt(x, y)
+        }
+    }
+
+    fun setAutoBlink(enable: Boolean) {
+        queueEvent {
+            renderer.setAutoBlink(enable)
+        }
+    }
+
+    private fun installLookAtTouchListener() {
+        setOnTouchListener { view, event ->
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN, MotionEvent.ACTION_MOVE -> {
+                    val w = view.width.coerceAtLeast(1)
+                    val h = view.height.coerceAtLeast(1)
+                    val nx = ((event.x / w) * 2f - 1f).coerceIn(-1f, 1f)
+                    val ny = -(((event.y / h) * 2f - 1f)).coerceIn(-1f, 1f)
+                    setLookAt(nx, ny)
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    setLookAt(0f, 0f)
+                }
+            }
+            true
         }
     }
 
@@ -146,6 +178,9 @@ private class NativeMmdRenderer(
     private var rotationZ: Float = 0f
     private var cameraDistanceScale: Float = 1f
     private var cameraTargetHeight: Float = 0f
+    private var lookAtX: Float = 0f
+    private var lookAtY: Float = 0f
+    private var autoBlinkEnabled: Boolean = true
     private var lastRenderError: String? = null
 
     fun setOnErrorListener(listener: ((String) -> Unit)?) {
@@ -206,6 +241,21 @@ private class NativeMmdRenderer(
         cameraTargetHeight = height.coerceIn(-2.0f, 2.0f)
         if (rendererHandle != 0L) {
             MmdNative.nativeSetCameraTargetHeight(rendererHandle, cameraTargetHeight)
+        }
+    }
+
+    fun setLookAt(x: Float, y: Float) {
+        lookAtX = x
+        lookAtY = y
+        if (rendererHandle != 0L) {
+            MmdNative.nativeSetLookAt(rendererHandle, x, y)
+        }
+    }
+
+    fun setAutoBlink(enable: Boolean) {
+        autoBlinkEnabled = enable
+        if (rendererHandle != 0L) {
+            MmdNative.nativeSetAutoBlink(rendererHandle, enable)
         }
     }
 
@@ -282,6 +332,8 @@ private class NativeMmdRenderer(
         MmdNative.nativeSetModelRotation(rendererHandle, rotationX, rotationY, rotationZ)
         MmdNative.nativeSetCameraDistanceScale(rendererHandle, cameraDistanceScale)
         MmdNative.nativeSetCameraTargetHeight(rendererHandle, cameraTargetHeight)
+        MmdNative.nativeSetAutoBlink(rendererHandle, autoBlinkEnabled)
+        MmdNative.nativeSetLookAt(rendererHandle, lookAtX, lookAtY)
         MmdNative.nativeSetModelPath(rendererHandle, requestedModelPath)
         MmdNative.nativeSetAnimationState(
             rendererHandle,
