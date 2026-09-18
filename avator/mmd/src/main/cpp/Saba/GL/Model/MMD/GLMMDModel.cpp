@@ -12,6 +12,9 @@
 #include <string>
 #include <map>
 #include <memory>
+#include <cmath>
+#include <cstdlib>
+#include <glm/gtc/quaternion.hpp>
 
 namespace saba
 {
@@ -296,6 +299,9 @@ namespace saba
 		EvaluateAnimation(animTime);
 		setupAnimPerf.Stop();
 
+		// Operit patch: apply morph overrides + auto blink before morph update
+		ApplyMorphOverrides();
+		UpdateAutoBlink(elapsed);
 		// Update morph animation
 		updateMorphAnimPerf.Start();
 		m_mmdModel->UpdateMorphAnimation();
@@ -318,6 +324,9 @@ namespace saba
 		updateNodeAnimPerf.Start();
 		m_mmdModel->UpdateNodeAnimation(true);
 		updateNodeAnimPerf.Stop();
+
+		// Operit patch: apply look-at head rotation after node transforms
+		ApplyLookAtOverride();
 
 		// End animation
 		setupAnimPerf.Start();
@@ -352,6 +361,9 @@ namespace saba
 		m_mmdModel->LoadBaseAnimation();
 		setupAnimPerf.Stop();
 
+		// Operit patch: apply morph overrides + auto blink before morph update
+		ApplyMorphOverrides();
+		UpdateAutoBlink(elapsed);
 		// Update morph animation
 		updateMorphAnimPerf.Start();
 		m_mmdModel->UpdateMorphAnimation();
@@ -374,6 +386,9 @@ namespace saba
 		updateNodeAnimPerf.Start();
 		m_mmdModel->UpdateNodeAnimation(true);
 		updateNodeAnimPerf.Stop();
+
+		// Operit patch: apply look-at head rotation after node transforms
+		ApplyLookAtOverride();
 
 		// End animation
 		setupAnimPerf.Start();
@@ -463,6 +478,152 @@ namespace saba
 			+ m_updatePhysicsAnimTime
 			+ m_updateModelTime
 			+ m_updateGLBufferTime;
+	}
+
+	// === Operit patch: expressive control implementations ===
+	namespace
+	{
+		const float kOperitPi = 3.14159265358979323846f;
+		float OpDeg2Rad(float deg) { return deg * kOperitPi / 180.0f; }
+	}
+
+	void GLMMDModel::SetMorphOverride(const std::string& name, float weight)
+	{
+		m_morphOverrides[name] = weight;
+	}
+
+	void GLMMDModel::ClearMorphOverride(const std::string& name)
+	{
+		m_morphOverrides.erase(name);
+	}
+
+	void GLMMDModel::ClearAllMorphOverrides()
+	{
+		m_morphOverrides.clear();
+	}
+
+	void GLMMDModel::ApplyMorphOverrides()
+	{
+		if (m_mmdModel == nullptr || m_morphOverrides.empty())
+		{
+			return;
+		}
+		auto* morphMan = m_mmdModel->GetMorphManager();
+		if (morphMan == nullptr)
+		{
+			return;
+		}
+		for (const auto& kv : m_morphOverrides)
+		{
+			auto* morph = morphMan->GetMorph(kv.first);
+			if (morph != nullptr)
+			{
+				morph->SetWeight(kv.second);
+			}
+		}
+	}
+
+	void GLMMDModel::UpdateAutoBlink(double elapsed)
+	{
+		m_idleClock += elapsed;
+
+		if (!m_autoBlinkEnabled || m_mmdModel == nullptr)
+		{
+			return;
+		}
+
+		auto* morphMan = m_mmdModel->GetMorphManager();
+		if (morphMan == nullptr)
+		{
+			return;
+		}
+
+		MMDMorph* blink = morphMan->GetMorph(std::string("まばたき"));
+		if (blink == nullptr) { blink = morphMan->GetMorph(std::string("blink")); }
+		if (blink == nullptr) { blink = morphMan->GetMorph(std::string("Blink")); }
+		if (blink == nullptr) { blink = morphMan->GetMorph(std::string("BLINK")); }
+		if (blink == nullptr) { blink = morphMan->GetMorph(std::string("目パチ")); }
+		if (blink == nullptr) { blink = morphMan->GetMorph(std::string("眨眼")); }
+		if (blink == nullptr)
+		{
+			return;
+		}
+
+		m_blinkSinceLast += elapsed;
+
+		float weight = 0.0f;
+		if (m_blinkSinceLast >= m_blinkInterval)
+		{
+			const double t = m_blinkSinceLast - m_blinkInterval;
+			if (t < 0.06)
+			{
+				weight = (float)(t / 0.06);
+			}
+			else if (t < 0.18)
+			{
+				weight = (float)((0.18 - t) / 0.12);
+			}
+			else
+			{
+				m_blinkSinceLast = 0.0;
+				m_blinkInterval = 2.6 + (double)(std::rand() % 140) / 100.0;
+			}
+			if (weight < 0.0f) { weight = 0.0f; }
+			if (weight > 1.0f) { weight = 1.0f; }
+		}
+
+		blink->SetWeight(weight);
+	}
+
+	void GLMMDModel::ApplyLookAtOverride()
+	{
+		if (m_mmdModel == nullptr)
+		{
+			return;
+		}
+
+		float yaw = 0.0f;
+		float pitch = 0.0f;
+
+		if (m_lookAtX != 0.0f || m_lookAtY != 0.0f)
+		{
+			yaw = m_lookAtX * 28.0f;
+			pitch = m_lookAtY * 18.0f;
+		}
+		else if (m_autoGlanceEnabled)
+		{
+			yaw = 5.5f * (float)std::sin(m_idleClock * 0.7);
+			pitch = 3.0f * (float)std::sin(m_idleClock * 1.13 + 1.0);
+		}
+
+		if (yaw == 0.0f && pitch == 0.0f)
+		{
+			return;
+		}
+
+		auto* nodeMan = m_mmdModel->GetNodeManager();
+		if (nodeMan == nullptr)
+		{
+			return;
+		}
+
+		MMDNode* head = nodeMan->GetMMDNode(std::string("頭"));
+		if (head == nullptr) { head = nodeMan->GetMMDNode(std::string("head")); }
+		if (head == nullptr) { head = nodeMan->GetMMDNode(std::string("Head")); }
+		if (head == nullptr) { head = nodeMan->GetMMDNode(std::string("HEAD")); }
+		if (head == nullptr) { head = nodeMan->GetMMDNode(std::string("头")); }
+		if (head == nullptr)
+		{
+			return;
+		}
+
+		const glm::quat delta =
+			glm::angleAxis(OpDeg2Rad(yaw), glm::vec3(0.0f, 1.0f, 0.0f)) *
+			glm::angleAxis(OpDeg2Rad(pitch), glm::vec3(1.0f, 0.0f, 0.0f));
+
+		head->SetRotate(head->GetInitialRotate() * delta);
+		head->UpdateLocalTransform();
+		head->UpdateGlobalTransform();
 	}
 
 }
