@@ -356,6 +356,44 @@ Java_com_ai_assistance_mmd_MmdNative_nativeSetCameraTargetHeight(
 #endif
 }
 
+JNIEXPORT void JNICALL
+Java_com_ai_assistance_mmd_MmdNative_nativeSetLookAt(
+    JNIEnv*,
+    jclass,
+    jlong handleValue,
+    jfloat x,
+    jfloat y
+) {
+#if defined(OPERIT_HAS_SABA) && OPERIT_HAS_SABA
+    auto* handle = FromHandle(handleValue);
+    if (handle != nullptr && handle->viewer != nullptr) {
+        handle->viewer->SetLookAt(x, y);
+    }
+#else
+    (void) handleValue;
+    (void) x;
+    (void) y;
+#endif
+}
+
+JNIEXPORT void JNICALL
+Java_com_ai_assistance_mmd_MmdNative_nativeSetAutoBlink(
+    JNIEnv*,
+    jclass,
+    jlong handleValue,
+    jboolean enable
+) {
+#if defined(OPERIT_HAS_SABA) && OPERIT_HAS_SABA
+    auto* handle = FromHandle(handleValue);
+    if (handle != nullptr && handle->viewer != nullptr) {
+        handle->viewer->SetAutoBlink(enable == JNI_TRUE);
+    }
+#else
+    (void) handleValue;
+    (void) enable;
+#endif
+}
+
 JNIEXPORT jstring JNICALL
 Java_com_ai_assistance_mmd_MmdNative_nativeGetRendererLastError(
     JNIEnv* env,
