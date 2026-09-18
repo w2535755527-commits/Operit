@@ -158,7 +158,7 @@ namespace saba
 		bool	m_enableEdge;
 		bool	m_enableGroundShadow;
 		// === Operit patch ===
-		void ApplyLookAtOverride();
+		void ApplyLookAtOverride(double elapsed);
 		void ApplyMorphOverrides();
 		void UpdateAutoBlink(double elapsed);
 		float m_lookAtX = 0.0f;
@@ -168,6 +168,11 @@ namespace saba
 		double m_idleClock = 0.0;
 		double m_blinkSinceLast = 0.0;
 		double m_blinkInterval = 3.0;
+		double m_gazeTimer = 0.0;
+		float m_gazeTargetYaw = 0.0f;
+		float m_gazeTargetPitch = 0.0f;
+		float m_gazeCurYaw = 0.0f;
+		float m_gazeCurPitch = 0.0f;
 		std::map<std::string, float> m_morphOverrides;
 	};
 }
