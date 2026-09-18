@@ -56,6 +56,8 @@ object MmdNative {
     @JvmStatic external fun nativeSetCameraDistanceScale(handle: Long, scale: Float)
 
     @JvmStatic external fun nativeSetCameraTargetHeight(handle: Long, height: Float)
+    @JvmStatic external fun nativeSetLookAt(handle: Long, x: Float, y: Float)
+    @JvmStatic external fun nativeSetAutoBlink(handle: Long, enable: Boolean)
 
     @JvmStatic external fun nativeGetRendererLastError(handle: Long): String
 }
