@@ -326,7 +326,7 @@ namespace saba
 		updateNodeAnimPerf.Stop();
 
 		// Operit patch: apply look-at head rotation after node transforms
-		ApplyLookAtOverride();
+		ApplyLookAtOverride(elapsed);
 
 		// End animation
 		setupAnimPerf.Start();
@@ -388,7 +388,7 @@ namespace saba
 		updateNodeAnimPerf.Stop();
 
 		// Operit patch: apply look-at head rotation after node transforms
-		ApplyLookAtOverride();
+		ApplyLookAtOverride(elapsed);
 
 		// End animation
 		setupAnimPerf.Start();
@@ -575,7 +575,7 @@ namespace saba
 		blink->SetWeight(weight);
 	}
 
-	void GLMMDModel::ApplyLookAtOverride()
+	void GLMMDModel::ApplyLookAtOverride(double elapsed)
 	{
 		if (m_mmdModel == nullptr)
 		{
@@ -589,11 +589,35 @@ namespace saba
 		{
 			yaw = m_lookAtX * 28.0f;
 			pitch = m_lookAtY * 18.0f;
+			m_gazeCurYaw = yaw;
+			m_gazeCurPitch = pitch;
 		}
 		else if (m_autoGlanceEnabled)
 		{
-			yaw = 5.5f * (float)std::sin(m_idleClock * 0.7);
-			pitch = 3.0f * (float)std::sin(m_idleClock * 1.13 + 1.0);
+			// Operit patch: random head swing (wander gaze)
+			m_gazeTimer -= elapsed;
+			if (m_gazeTimer <= 0.0)
+			{
+				if ((std::rand() % 100) < 26)
+				{
+					m_gazeTargetYaw = 0.0f;
+					m_gazeTargetPitch = 0.0f;
+				}
+				else
+				{
+					m_gazeTargetYaw =
+						((float)(std::rand() % 2001) / 1000.0f - 1.0f) * 26.0f;
+					m_gazeTargetPitch =
+						((float)(std::rand() % 2001) / 1000.0f - 1.0f) * 13.0f;
+				}
+				m_gazeTimer = 1.3 + (double)(std::rand() % 240) / 100.0;
+			}
+			double blend = elapsed * 3.2;
+			if (blend > 1.0) { blend = 1.0; }
+			m_gazeCurYaw += (float)((m_gazeTargetYaw - m_gazeCurYaw) * blend);
+			m_gazeCurPitch += (float)((m_gazeTargetPitch - m_gazeCurPitch) * blend);
+			yaw = m_gazeCurYaw;
+			pitch = m_gazeCurPitch;
 		}
 
 		if (yaw == 0.0f && pitch == 0.0f)
