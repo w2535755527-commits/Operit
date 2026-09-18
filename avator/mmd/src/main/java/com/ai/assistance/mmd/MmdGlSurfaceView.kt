@@ -39,7 +39,7 @@ class MmdGlSurfaceView @JvmOverloads constructor(
         setRenderer(renderer)
         renderMode = RENDERMODE_CONTINUOUSLY
         requestHighRefreshRateIfSupported()
-        installLookAtTouchListener()
+        // Operit patch: gaze is fully autonomous (random wander), no touch wiring
     }
 
     fun setModelPath(path: String) {
