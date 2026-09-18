@@ -357,6 +357,43 @@ void Viewer::SetModelRotation(float rotationX, float rotationY, float rotationZ)
     UpdateModelTransform();
 }
 
+// === Operit patch: expressive control ===
+void Viewer::SetLookAt(float x, float y) {
+    m_lookAtX = x;
+    m_lookAtY = y;
+    if (m_glMmdModel != nullptr) {
+        m_glMmdModel->SetLookAt(x, y);
+    }
+}
+
+void Viewer::SetAutoBlink(bool enable) {
+    m_autoBlinkEnabled = enable;
+    if (m_glMmdModel != nullptr) {
+        m_glMmdModel->SetAutoBlink(enable);
+    }
+}
+
+void Viewer::SetAutoGlance(bool enable) {
+    m_autoGlanceEnabled = enable;
+    if (m_glMmdModel != nullptr) {
+        m_glMmdModel->SetAutoGlance(enable);
+    }
+}
+
+void Viewer::SetMorphOverride(const std::string& name, float weight) {
+    m_morphOverrides[name] = weight;
+    if (m_glMmdModel != nullptr) {
+        m_glMmdModel->SetMorphOverride(name, weight);
+    }
+}
+
+void Viewer::ClearMorphOverrides() {
+    m_morphOverrides.clear();
+    if (m_glMmdModel != nullptr) {
+        m_glMmdModel->ClearAllMorphOverrides();
+    }
+}
+
 void Viewer::SetCameraDistanceScale(float scale) {
     m_cameraDistanceScale = glm::clamp(scale, 0.02f, 12.0f);
     UpdateCamera();
@@ -493,6 +530,13 @@ bool Viewer::LoadModel(const std::string& modelPath, std::string* outError) {
     m_mmdModel = std::move(model);
     m_glMmdModel = std::move(glModel);
     m_mmdDrawer = std::move(drawer);
+    // === Operit patch: re-apply expressive state to the new model ===
+    m_glMmdModel->SetLookAt(m_lookAtX, m_lookAtY);
+    m_glMmdModel->SetAutoBlink(m_autoBlinkEnabled);
+    m_glMmdModel->SetAutoGlance(m_autoGlanceEnabled);
+    for (const auto& kv : m_morphOverrides) {
+        m_glMmdModel->SetMorphOverride(kv.first, kv.second);
+    }
     m_hasLastFrameAt = false;
     m_modelStateApplied = true;
 
