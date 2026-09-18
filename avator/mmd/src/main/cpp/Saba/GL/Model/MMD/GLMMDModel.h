@@ -14,6 +14,8 @@
 #include <Saba/Model/MMD/VMDAnimation.h>
 
 #include <memory>
+#include <map>
+#include <string>
 
 namespace saba
 {
@@ -120,6 +122,15 @@ namespace saba
 		void EnableGroundShadow(bool enable) { m_enableGroundShadow = enable; }
 		bool IsEnableGroundShadow() const { return m_enableGroundShadow; }
 
+		// === Operit patch: expressive control (look-at / morph / auto blink) ===
+		void SetLookAt(float x, float y) { m_lookAtX = x; m_lookAtY = y; }
+		void SetAutoBlink(bool enable) { m_autoBlinkEnabled = enable; }
+		bool IsAutoBlinkEnabled() const { return m_autoBlinkEnabled; }
+		void SetAutoGlance(bool enable) { m_autoGlanceEnabled = enable; }
+		void SetMorphOverride(const std::string& name, float weight);
+		void ClearMorphOverride(const std::string& name);
+		void ClearAllMorphOverrides();
+
 	private:
 		std::shared_ptr<MMDModel>		m_mmdModel;
 
@@ -146,6 +157,18 @@ namespace saba
 		bool	m_enablePhysics;
 		bool	m_enableEdge;
 		bool	m_enableGroundShadow;
+		// === Operit patch ===
+		void ApplyLookAtOverride();
+		void ApplyMorphOverrides();
+		void UpdateAutoBlink(double elapsed);
+		float m_lookAtX = 0.0f;
+		float m_lookAtY = 0.0f;
+		bool m_autoBlinkEnabled = true;
+		bool m_autoGlanceEnabled = true;
+		double m_idleClock = 0.0;
+		double m_blinkSinceLast = 0.0;
+		double m_blinkInterval = 3.0;
+		std::map<std::string, float> m_morphOverrides;
 	};
 }
 
