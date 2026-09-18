@@ -5,6 +5,7 @@
 #include <memory>
 #include <string>
 #include <chrono>
+#include <map>
 
 namespace saba {
 
@@ -28,6 +29,12 @@ public:
     bool SetModelPath(const std::string& modelPath, std::string* outError);
     bool SetAnimationState(const std::string& animationName, bool isLooping, std::string* outError);
     void SetModelRotation(float rotationX, float rotationY, float rotationZ);
+    // === Operit patch: expressive control ===
+    void SetLookAt(float x, float y);
+    void SetAutoBlink(bool enable);
+    void SetAutoGlance(bool enable);
+    void SetMorphOverride(const std::string& name, float weight);
+    void ClearMorphOverrides();
     void SetCameraDistanceScale(float scale);
     void SetCameraTargetHeight(float height);
     void Pause();
@@ -65,6 +72,12 @@ private:
     float m_rotationZ = 0.0f;
     float m_cameraDistanceScale = 1.0f;
     float m_cameraTargetHeight = 0.0f;
+    // === Operit patch ===
+    float m_lookAtX = 0.0f;
+    float m_lookAtY = 0.0f;
+    bool m_autoBlinkEnabled = true;
+    bool m_autoGlanceEnabled = true;
+    std::map<std::string, float> m_morphOverrides;
 
     float m_baseCameraDistance = 3.0f;
     float m_nearClip = 0.01f;
