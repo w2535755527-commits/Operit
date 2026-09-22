@@ -1,6 +1,6 @@
 #include "Viewer.h"
-
 #include <android/log.h>
+#include <algorithm>
 #include <cmath>
 #include <cstdint>
 #include <filesystem>
@@ -391,6 +391,67 @@ void Viewer::ClearMorphOverrides() {
     m_morphOverrides.clear();
     if (m_glMmdModel != nullptr) {
         m_glMmdModel->ClearAllMorphOverrides();
+    }
+}
+
+// === Operit patch: morph introspection + bulk control ===
+int Viewer::GetMorphCount() const {
+    if (m_mmdModel == nullptr) {
+        return 0;
+    }
+    auto* morphManager = m_mmdModel->GetMorphManager();
+    if (morphManager == nullptr) {
+        return 0;
+    }
+    return static_cast<int>(morphManager->GetMorphCount());
+}
+
+std::vector<std::string> Viewer::GetMorphNames() const {
+    std::vector<std::string> names;
+    if (m_mmdModel == nullptr) {
+        return names;
+    }
+    auto* morphManager = m_mmdModel->GetMorphManager();
+    if (morphManager == nullptr) {
+        return names;
+    }
+    const size_t count = morphManager->GetMorphCount();
+    names.reserve(count);
+    for (size_t i = 0; i < count; ++i) {
+        auto* morph = morphManager->GetMorph(i);
+        if (morph != nullptr) {
+            names.push_back(morph->GetName());
+        }
+    }
+    return names;
+}
+
+void Viewer::SetMorphWeights(
+    const std::vector<std::string>& names,
+    const std::vector<float>& weights
+) {
+    const size_t count = std::min(names.size(), weights.size());
+    for (size_t i = 0; i < count; ++i) {
+        SetMorphOverride(names[i], weights[i]);
+    }
+}
+
+void Viewer::SetNodeRotation(
+    const std::string& name,
+    float rotationX,
+    float rotationY,
+    float rotationZ
+) {
+    m_nodeRotationOverrides[name] = {rotationX, rotationY, rotationZ};
+    if (m_glMmdModel != nullptr) {
+        m_glMmdModel->SetNodeRotationOverride(name, rotationX, rotationY, rotationZ);
+    }
+}
+
+void Viewer::ClearNodeRotations() {
+    m_nodeRotationOverrides.clear();
+    if (m_glMmdModel != nullptr) {
+        m_glMmdModel->ClearAllNodeRotationOverrides();
     }
 }
 

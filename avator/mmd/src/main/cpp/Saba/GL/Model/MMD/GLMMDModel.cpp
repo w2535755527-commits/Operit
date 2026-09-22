@@ -306,11 +306,13 @@ namespace saba
 		updateMorphAnimPerf.Start();
 		m_mmdModel->UpdateMorphAnimation();
 		updateMorphAnimPerf.Stop();
-
 		// Update node animation (before physics animation)
 		updateNodeAnimPerf.Start();
 		m_mmdModel->UpdateNodeAnimation(false);
 		updateNodeAnimPerf.Stop();;
+
+		// Operit patch: apply bone rotation overrides after node update (pre-physics)
+		ApplyNodeRotationOverrides();
 
 		if (m_enablePhysics)
 		{
@@ -319,11 +321,15 @@ namespace saba
 			m_mmdModel->UpdatePhysicsAnimation((float)elapsed);
 			updatePhysicsAnimPerf.Stop();
 		}
+		Perf updatePhysicsAnimPerf;
 
 		// Update node animation (after physics animation)
 		updateNodeAnimPerf.Start();
 		m_mmdModel->UpdateNodeAnimation(true);
 		updateNodeAnimPerf.Stop();
+
+		// Operit patch: re-apply bone rotation overrides after final node update
+		ApplyNodeRotationOverrides();
 
 		// Operit patch: apply look-at head rotation after node transforms
 		ApplyLookAtOverride(elapsed);
@@ -520,6 +526,56 @@ namespace saba
 			{
 				morph->SetWeight(kv.second);
 			}
+		}
+	}
+
+	// === Operit patch: node (bone) rotation override ===
+	void GLMMDModel::SetNodeRotationOverride(const std::string& name, float rx, float ry, float rz)
+	{
+		m_nodeRotationOverrides[name] = NodeRotationOverride{rx, ry, rz};
+	}
+
+	void GLMMDModel::ClearNodeRotationOverride(const std::string& name)
+	{
+		m_nodeRotationOverrides.erase(name);
+	}
+
+	void GLMMDModel::ClearAllNodeRotationOverrides()
+	{
+		m_nodeRotationOverrides.clear();
+	}
+
+	void GLMMDModel::ApplyNodeRotationOverrides()
+	{
+		if (m_mmdModel == nullptr || m_nodeRotationOverrides.empty())
+		{
+			return;
+		}
+		auto* nodeMan = m_mmdModel->GetNodeManager();
+		if (nodeMan == nullptr)
+		{
+			return;
+		}
+		for (const auto& kv : m_nodeRotationOverrides)
+		{
+			auto* node = nodeMan->GetMMDNode(kv.first);
+			if (node == nullptr)
+			{
+				continue;
+			}
+			const float hx = OpDeg2Rad(kv.second.rx) * 0.5f;
+			const float hy = OpDeg2Rad(kv.second.ry) * 0.5f;
+			const float hz = OpDeg2Rad(kv.second.rz) * 0.5f;
+			// ZYX intrinsic order, matching MMD euler convention
+			const float cx = std::cos(hx), sx = std::sin(hx);
+			const float cy = std::cos(hy), sy = std::sin(hy);
+			const float cz = std::cos(hz), sz = std::sin(hz);
+			glm::quat q;
+			q.w = cx * cy * cz + sx * sy * sz;
+			q.x = sx * cy * cz - cx * sy * sz;
+			q.y = cx * sy * cz + sx * cy * sz;
+			q.z = cx * cy * sz - sx * sy * cz;
+			node->SetRotate(q);
 		}
 	}
 

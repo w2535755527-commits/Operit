@@ -131,6 +131,11 @@ namespace saba
 		void ClearMorphOverride(const std::string& name);
 		void ClearAllMorphOverrides();
 
+		// === Operit patch: node (bone) rotation override ===
+		void SetNodeRotationOverride(const std::string& name, float rx, float ry, float rz);
+		void ClearNodeRotationOverride(const std::string& name);
+		void ClearAllNodeRotationOverrides();
+
 	private:
 		std::shared_ptr<MMDModel>		m_mmdModel;
 
@@ -160,6 +165,7 @@ namespace saba
 		// === Operit patch ===
 		void ApplyLookAtOverride(double elapsed);
 		void ApplyMorphOverrides();
+		void ApplyNodeRotationOverrides();
 		void UpdateAutoBlink(double elapsed);
 		float m_lookAtX = 0.0f;
 		float m_lookAtY = 0.0f;
@@ -174,6 +180,12 @@ namespace saba
 		float m_gazeCurYaw = 0.0f;
 		float m_gazeCurPitch = 0.0f;
 		std::map<std::string, float> m_morphOverrides;
+		struct NodeRotationOverride {
+			float rx;
+			float ry;
+			float rz;
+		};
+		std::map<std::string, NodeRotationOverride> m_nodeRotationOverrides;
 	};
 }
 

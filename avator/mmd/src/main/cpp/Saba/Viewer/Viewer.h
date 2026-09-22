@@ -6,6 +6,8 @@
 #include <string>
 #include <chrono>
 #include <map>
+#include <vector>
+#include <array>
 
 namespace saba {
 
@@ -35,6 +37,12 @@ public:
     void SetAutoGlance(bool enable);
     void SetMorphOverride(const std::string& name, float weight);
     void ClearMorphOverrides();
+    // === Operit patch: morph introspection + bulk control ===
+    int GetMorphCount() const;
+    std::vector<std::string> GetMorphNames() const;
+    void SetMorphWeights(const std::vector<std::string>& names, const std::vector<float>& weights);
+    void SetNodeRotation(const std::string& name, float rotationX, float rotationY, float rotationZ);
+    void ClearNodeRotations();
     void SetCameraDistanceScale(float scale);
     void SetCameraTargetHeight(float height);
     void Pause();
@@ -78,6 +86,7 @@ private:
     bool m_autoBlinkEnabled = true;
     bool m_autoGlanceEnabled = true;
     std::map<std::string, float> m_morphOverrides;
+    std::map<std::string, std::array<float, 3>> m_nodeRotationOverrides;
 
     float m_baseCameraDistance = 3.0f;
     float m_nearClip = 0.01f;

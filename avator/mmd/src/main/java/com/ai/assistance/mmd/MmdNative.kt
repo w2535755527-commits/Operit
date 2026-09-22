@@ -58,6 +58,33 @@ object MmdNative {
     @JvmStatic external fun nativeSetCameraTargetHeight(handle: Long, height: Float)
     @JvmStatic external fun nativeSetLookAt(handle: Long, x: Float, y: Float)
     @JvmStatic external fun nativeSetAutoBlink(handle: Long, enable: Boolean)
+    @JvmStatic external fun nativeSetAutoGlance(handle: Long, enable: Boolean)
+
+    // === Operit patch: morph (expression) control ===
+    @JvmStatic external fun nativeGetMorphCount(handle: Long): Int
+
+    @JvmStatic external fun nativeGetMorphNames(handle: Long): Array<String>?
+
+    @JvmStatic external fun nativeSetMorphWeight(handle: Long, name: String, weight: Float)
+
+    @JvmStatic external fun nativeSetMorphWeights(
+        handle: Long,
+        names: Array<String>,
+        weights: FloatArray
+    )
+
+    @JvmStatic external fun nativeClearMorphOverrides(handle: Long)
+
+    // === Operit patch: bone (node) rotation control ===
+    @JvmStatic external fun nativeSetNodeRotation(
+        handle: Long,
+        name: String,
+        rx: Float,
+        ry: Float,
+        rz: Float
+    )
+
+    @JvmStatic external fun nativeClearNodeRotations(handle: Long)
 
     @JvmStatic external fun nativeGetRendererLastError(handle: Long): String
 }

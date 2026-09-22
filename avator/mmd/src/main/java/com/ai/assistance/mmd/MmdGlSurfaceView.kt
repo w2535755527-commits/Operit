@@ -77,12 +77,70 @@ class MmdGlSurfaceView @JvmOverloads constructor(
             renderer.setLookAt(x, y)
         }
     }
-
     fun setAutoBlink(enable: Boolean) {
         queueEvent {
             renderer.setAutoBlink(enable)
         }
     }
+
+    // === Operit patch: expression (morph) control ===
+    fun setAutoGlance(enable: Boolean) {
+        queueEvent {
+            renderer.setAutoGlance(enable)
+        }
+    }
+
+    fun setMorphWeight(name: String, weight: Float) {
+        queueEvent {
+            renderer.setMorphWeight(name, weight)
+        }
+    }
+
+    fun setMorphWeights(names: Array<String>, weights: FloatArray) {
+        queueEvent {
+            renderer.setMorphWeights(names, weights)
+        }
+    }
+
+    fun clearMorphOverrides() {
+        queueEvent {
+            renderer.clearMorphOverrides()
+        }
+    }
+
+    fun getMorphNames(): Array<String> {
+        return renderer.getMorphNames()
+    }
+
+    fun getMorphCount(): Int {
+        return renderer.getMorphCount()
+    }
+
+    /**
+     * Operit patch: thread-safe morph name query.
+     * Runs on the GL thread and delivers the result back on the main thread,
+     * so it never races with the render loop.
+     */
+    fun requestMorphNames(callback: (Array<String>) -> Unit) {
+        queueEvent {
+            val names = renderer.getMorphNames()
+            renderer.postToMain { callback(names) }
+        }
+    }
+
+    // === Operit patch: bone (node) rotation control ===
+    fun setNodeRotation(name: String, rx: Float, ry: Float, rz: Float) {
+        queueEvent {
+            renderer.setNodeRotation(name, rx, ry, rz)
+        }
+    }
+
+    fun clearNodeRotations() {
+        queueEvent {
+            renderer.clearNodeRotations()
+        }
+    }
+
 
     private fun installLookAtTouchListener() {
         setOnTouchListener { view, event ->
@@ -181,10 +239,18 @@ private class NativeMmdRenderer(
     private var lookAtX: Float = 0f
     private var lookAtY: Float = 0f
     private var autoBlinkEnabled: Boolean = true
+    private var autoGlanceEnabled: Boolean = true
+    private val morphOverrides = LinkedHashMap<String, Float>()
+    private val nodeRotationOverrides = LinkedHashMap<String, FloatArray>()
     private var lastRenderError: String? = null
 
     fun setOnErrorListener(listener: ((String) -> Unit)?) {
         onErrorListener = listener
+    }
+
+    /** Operit patch: hop back to the main thread from the GL thread. */
+    fun postToMain(block: () -> Unit) {
+        mainHandler.post(block)
     }
 
     fun setModelPath(path: String) {
@@ -256,6 +322,94 @@ private class NativeMmdRenderer(
         autoBlinkEnabled = enable
         if (rendererHandle != 0L) {
             MmdNative.nativeSetAutoBlink(rendererHandle, enable)
+        }
+    }
+
+    // === Operit patch: expression (morph) control ===
+    fun setAutoGlance(enable: Boolean) {
+        autoGlanceEnabled = enable
+        if (rendererHandle != 0L) {
+            MmdNative.nativeSetAutoGlance(rendererHandle, enable)
+        }
+    }
+
+    fun setMorphWeight(name: String, weight: Float) {
+        val key = name.trim()
+        if (key.isEmpty()) {
+            return
+        }
+        val w = weight.coerceIn(0f, 1f)
+        morphOverrides[key] = w
+        if (rendererHandle != 0L) {
+            MmdNative.nativeSetMorphWeight(rendererHandle, key, w)
+        }
+    }
+
+    fun setMorphWeights(names: Array<String>, weights: FloatArray) {
+        val count = minOf(names.size, weights.size)
+        if (count <= 0) {
+            return
+        }
+        val cleanNames = ArrayList<String>(count)
+        val cleanWeights = FloatArray(count)
+        for (i in 0 until count) {
+            val key = names[i].trim()
+            if (key.isEmpty()) {
+                continue
+            }
+            cleanNames.add(key)
+            cleanWeights[i] = weights[i].coerceIn(0f, 1f)
+            morphOverrides[key] = cleanWeights[i]
+        }
+        if (cleanNames.isEmpty()) {
+            return
+        }
+        if (rendererHandle != 0L) {
+            MmdNative.nativeSetMorphWeights(
+                rendererHandle,
+                cleanNames.toTypedArray(),
+                cleanWeights
+            )
+        }
+    }
+
+    fun clearMorphOverrides() {
+        morphOverrides.clear()
+        if (rendererHandle != 0L) {
+            MmdNative.nativeClearMorphOverrides(rendererHandle)
+        }
+    }
+
+    fun getMorphNames(): Array<String> {
+        if (rendererHandle == 0L) {
+            return emptyArray()
+        }
+        return MmdNative.nativeGetMorphNames(rendererHandle) ?: emptyArray()
+    }
+
+    fun getMorphCount(): Int {
+        if (rendererHandle == 0L) {
+            return 0
+        }
+        return MmdNative.nativeGetMorphCount(rendererHandle)
+    }
+
+    // === Operit patch: bone (node) rotation control ===
+    fun setNodeRotation(name: String, rx: Float, ry: Float, rz: Float) {
+        val key = name.trim()
+        if (key.isEmpty()) {
+            return
+        }
+        nodeRotationOverrides[key] = floatArrayOf(rx, ry, rz)
+        if (rendererHandle != 0L) {
+            MmdNative.nativeSetNodeRotation(rendererHandle, key, rx, ry, rz)
+        }
+    }
+
+    fun clearNodeRotations() {
+        nodeRotationOverrides.clear()
+        if (rendererHandle != 0L) {
+            MmdNative.nativeClearNodeRotations(rendererHandle)
         }
     }
 
@@ -333,6 +487,7 @@ private class NativeMmdRenderer(
         MmdNative.nativeSetCameraDistanceScale(rendererHandle, cameraDistanceScale)
         MmdNative.nativeSetCameraTargetHeight(rendererHandle, cameraTargetHeight)
         MmdNative.nativeSetAutoBlink(rendererHandle, autoBlinkEnabled)
+        MmdNative.nativeSetAutoGlance(rendererHandle, autoGlanceEnabled)
         MmdNative.nativeSetLookAt(rendererHandle, lookAtX, lookAtY)
         MmdNative.nativeSetModelPath(rendererHandle, requestedModelPath)
         MmdNative.nativeSetAnimationState(
@@ -340,6 +495,26 @@ private class NativeMmdRenderer(
             requestedAnimationName,
             requestedAnimationLooping
         )
+        // Operit patch: replay expression / bone overrides after surface rebuild
+        if (morphOverrides.isNotEmpty()) {
+            val names = morphOverrides.keys.toTypedArray()
+            val weights = FloatArray(names.size)
+            names.forEachIndexed { index, name -> weights[index] = morphOverrides[name] ?: 0f }
+            MmdNative.nativeSetMorphWeights(rendererHandle, names, weights)
+        }
+        if (nodeRotationOverrides.isNotEmpty()) {
+            nodeRotationOverrides.forEach { (name, rotation) ->
+                if (rotation.size >= 3) {
+                    MmdNative.nativeSetNodeRotation(
+                        rendererHandle,
+                        name,
+                        rotation[0],
+                        rotation[1],
+                        rotation[2]
+                    )
+                }
+            }
+        }
     }
 
     private fun dispatchError(message: String) {

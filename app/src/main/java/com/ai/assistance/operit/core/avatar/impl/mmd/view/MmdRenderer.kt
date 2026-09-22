@@ -27,6 +27,7 @@ import androidx.lifecycle.LifecycleEventObserver
 import com.ai.assistance.mmd.MmdGlSurfaceView
 import com.ai.assistance.operit.core.avatar.common.control.AvatarController
 import com.ai.assistance.operit.core.avatar.impl.mmd.control.MmdAvatarController
+import com.ai.assistance.operit.core.avatar.impl.mmd.control.MmdExpressionFrame
 import com.ai.assistance.operit.core.avatar.impl.mmd.model.MmdAvatarModel
 
 @Composable
@@ -48,6 +49,7 @@ fun MmdRenderer(
     val cameraDistanceScale by mmdController.cameraDistanceScale.collectAsState()
     val cameraTargetHeight by mmdController.cameraTargetHeight.collectAsState()
     val avatarState by mmdController.state.collectAsState()
+    val expressionFrame by mmdController.expressionFrame.collectAsState()
 
     val safeScale = scale.coerceIn(0.2f, 5.0f)
 
@@ -99,6 +101,11 @@ fun MmdRenderer(
                     setModelRotation(initialRotationX, initialRotationY, initialRotationZ)
                     setCameraDistanceScale(cameraDistanceScale)
                     setCameraTargetHeight(cameraTargetHeight)
+                    setAutoGlance(true)
+                    // Operit patch: discover morphs once the model is loaded
+                    requestMorphNames { names ->
+                        mmdController.onMorphCatalogAvailable(names.toList())
+                    }
                     onResume()
                 }
             },
@@ -109,6 +116,20 @@ fun MmdRenderer(
                 view.setModelRotation(initialRotationX, initialRotationY, initialRotationZ)
                 view.setCameraDistanceScale(cameraDistanceScale)
                 view.setCameraTargetHeight(cameraTargetHeight)
+                // Operit patch: push the current expression frame to the native renderer
+                val frame = expressionFrame
+                if (frame.morphWeights.isEmpty()) {
+                    view.clearMorphOverrides()
+                } else {
+                    view.setMorphWeights(
+                        frame.morphWeights.keys.toTypedArray(),
+                        frame.morphWeights.values.toFloatArray()
+                    )
+                }
+                val headBone = mmdController.resolvedHeadBone()
+                if (headBone != null) {
+                    view.setNodeRotation(headBone, frame.headPitchDeg, frame.headYawDeg, 0f)
+                }
             }
         )
 

@@ -3,17 +3,31 @@ package com.ai.assistance.operit.core.avatar.impl.mmd.control
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.remember
 import com.ai.assistance.mmd.MmdNative
+import com.ai.assistance.mmd.MmdMorphLibrary
 import com.ai.assistance.operit.core.avatar.common.control.AvatarController
 import com.ai.assistance.operit.core.avatar.common.control.AvatarSettingKeys
 import com.ai.assistance.operit.core.avatar.common.state.AvatarEmotion
 import com.ai.assistance.operit.core.avatar.common.state.AvatarMoodTypes
 import com.ai.assistance.operit.core.avatar.common.state.AvatarState
+import com.ai.assistance.operit.core.avatar.common.state.RealtimeAvatarState
 import java.io.File
 import kotlin.math.roundToLong
 import com.ai.assistance.operit.core.avatar.impl.mmd.model.MmdAvatarModel
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+
+/**
+ * Operit patch: one frame of renderer-ready expression data.
+ *
+ * The controller stays renderer-agnostic: it only publishes semantic morph weights
+ * (already resolved to names that exist in the loaded model) plus head bone angles.
+ */
+data class MmdExpressionFrame(
+    val morphWeights: Map<String, Float> = emptyMap(),
+    val headYawDeg: Float = 0f,
+    val headPitchDeg: Float = 0f
+)
 
 class MmdAvatarController(
     private val model: MmdAvatarModel
@@ -45,6 +59,28 @@ class MmdAvatarController(
 
     private val _cameraTargetHeight = MutableStateFlow(0.0f)
     val cameraTargetHeight: StateFlow<Float> = _cameraTargetHeight.asStateFlow()
+
+    // === Operit patch: realtime expression pipeline ===
+    private val _expressionFrame = MutableStateFlow(MmdExpressionFrame())
+    /** Latest renderer-ready expression frame, consumed by the MMD renderer. */
+    val expressionFrame: StateFlow<MmdExpressionFrame> = _expressionFrame.asStateFlow()
+
+    private val _morphCatalog = MutableStateFlow<List<String>>(emptyList())
+    /** Morph names discovered from the loaded model, or empty until discovered. */
+    val morphCatalog: StateFlow<List<String>> = _morphCatalog.asStateFlow()
+
+    private var slotMap: Map<MmdMorphLibrary.Slot, String> = emptyMap()
+    private var vowelMap: Map<MmdMorphLibrary.Vowel, String> = emptyMap()
+    private var headBoneName: String? = null
+
+    @Volatile
+    private var gazeX: Float = 0f
+
+    @Volatile
+    private var gazeY: Float = 0f
+
+    @Volatile
+    private var lastExpression: MmdExpressionFrame = MmdExpressionFrame()
 
     override val availableAnimations: List<String>
         get() = model.displayMotionNames
@@ -114,7 +150,91 @@ class MmdAvatarController(
     }
 
     override fun lookAt(x: Float, y: Float) {
+        // Operit patch: remember the gaze target so the renderer can drive the head bone.
+        gazeX = x.coerceIn(-1f, 1f)
+        gazeY = y.coerceIn(-1f, 1f)
     }
+
+    override fun applyRealtimeState(realtimeState: RealtimeAvatarState) {
+        val state = realtimeState.normalized()
+        gazeX = state.gazeX
+        gazeY = state.gazeY
+        lastExpression = composeExpression(state)
+        _expressionFrame.value = lastExpression
+    }
+
+    /**
+     * Operit patch: converts a renderer-independent realtime state into concrete
+     * morph weights + head angles, using only morphs that exist in the loaded model.
+     */
+    private fun composeExpression(state: RealtimeAvatarState): MmdExpressionFrame {
+        val morphs = LinkedHashMap<String, Float>()
+
+        // --- lip sync (viseme slot chosen by mouth opening) ---
+        if (state.isSpeaking && state.mouthOpen > 0.01f) {
+            val vowel = pickVowel(state.mouthOpen)
+            vowelMap[vowel]?.let { morphs[it] = state.mouthOpen }
+        }
+
+        // --- blink (auto blink stays enabled; only drive when a manual value is given) ---
+        if (state.blink > 0.01f) {
+            slotMap[MmdMorphLibrary.Slot.BLINK]?.let { morphs[it] = state.blink }
+        }
+
+        // --- emotion morph, blended by intensity ---
+        val intensity = state.emotionIntensity
+        if (intensity > 0.01f) {
+            val slot = emotionToSlot(state.emotion)
+            if (slot != null) {
+                slotMap[slot]?.let { morphs[it] = intensity }
+            }
+        }
+
+        return MmdExpressionFrame(
+            morphWeights = morphs,
+            headYawDeg = state.headYaw * 28f,
+            headPitchDeg = state.headPitch * 18f
+        )
+    }
+
+    private fun pickVowel(mouthOpen: Float): MmdMorphLibrary.Vowel {
+        // Map opening amount to a viseme. The real phoneme timeline will override this
+        // once the G2P pipeline lands; until then a graded opening reads as natural speech.
+        return when {
+            mouthOpen < 0.2f -> MmdMorphLibrary.Vowel.I
+            mouthOpen < 0.4f -> MmdMorphLibrary.Vowel.U
+            mouthOpen < 0.6f -> MmdMorphLibrary.Vowel.E
+            mouthOpen < 0.8f -> MmdMorphLibrary.Vowel.O
+            else -> MmdMorphLibrary.Vowel.A
+        }
+    }
+
+    private fun emotionToSlot(emotion: AvatarEmotion): MmdMorphLibrary.Slot? = when (emotion) {
+        AvatarEmotion.HAPPY -> MmdMorphLibrary.Slot.SMILE
+        AvatarEmotion.SAD -> MmdMorphLibrary.Slot.SAD
+        AvatarEmotion.SURPRISED -> MmdMorphLibrary.Slot.SURPRISED
+        AvatarEmotion.CONFUSED -> MmdMorphLibrary.Slot.CONFUSED
+        AvatarEmotion.THINKING -> MmdMorphLibrary.Slot.THINKING
+        else -> null
+    }
+
+    /**
+     * Operit patch: called once the model has been loaded so that morph names can be
+     * resolved against the actual model contents.
+     */
+    fun onMorphCatalogAvailable(morphNames: List<String>, nodeNames: List<String> = emptyList()) {
+        _morphCatalog.value = morphNames
+        slotMap = MmdMorphLibrary.resolveSlots(morphNames)
+        vowelMap = MmdMorphLibrary.resolveVowels(morphNames)
+        headBoneName = if (nodeNames.isEmpty()) {
+            null
+        } else {
+            MmdMorphLibrary.resolveHeadBone(nodeNames)
+        }
+    }
+
+    /** Operit patch: the head bone resolved for the loaded model, if any. */
+    fun resolvedHeadBone(): String? = headBoneName
 
     override fun updateSettings(settings: Map<String, Any>) {
         settings[AvatarSettingKeys.SCALE]?.let { if (it is Number) _scale.value = it.toFloat() }
