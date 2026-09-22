@@ -194,11 +194,36 @@ jobs:
           npm run build:examples:github
           python3 tools/example_packages/sync_example_packages.py --no-hot-reload
 
+      - name: Restore signing keystore
+        shell: bash
+        env:
+          KS_B64: ${{ secrets.OPERIT_KEYSTORE_BASE64 }}
+        run: |
+          set -euo pipefail
+          if [ -z "${KS_B64:-}" ]; then
+            echo "No keystore secret configured; skipping signing setup."
+            exit 0
+          fi
+          echo "$KS_B64" | base64 -d > "$GITHUB_WORKSPACE/operit-release.jks"
+          echo "Keystore restored ($(stat -c%s "$GITHUB_WORKSPACE/operit-release.jks") bytes)"
       - name: Configure Android SDK
         shell: bash
+        env:
+          OPERIT_STORE_PASSWORD: ${{ secrets.OPERIT_STORE_PASSWORD }}
+          OPERIT_KEY_ALIAS: ${{ secrets.OPERIT_KEY_ALIAS }}
+          OPERIT_KEY_PASSWORD: ${{ secrets.OPERIT_KEY_PASSWORD }}
         run: |
           set -euo pipefail
           echo "sdk.dir=$ANDROID_HOME" > local.properties
+          if [ -n "${OPERIT_STORE_PASSWORD:-}" ]; then
+            {
+              echo "RELEASE_STORE_FILE=$GITHUB_WORKSPACE/operit-release.jks"
+              echo "RELEASE_STORE_PASSWORD=$OPERIT_STORE_PASSWORD"
+              echo "RELEASE_KEY_ALIAS=$OPERIT_KEY_ALIAS"
+              echo "RELEASE_KEY_PASSWORD=$OPERIT_KEY_PASSWORD"
+            } >> local.properties
+            echo "Signing properties appended to local.properties."
+          fi
 
       - name: Run Gradle build
         env:
