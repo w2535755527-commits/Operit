@@ -9,6 +9,7 @@ import com.ai.assistance.operit.core.avatar.common.control.AvatarSettingKeys
 import com.ai.assistance.operit.core.avatar.common.state.AvatarEmotion
 import com.ai.assistance.operit.core.avatar.common.state.AvatarMoodTypes
 import com.ai.assistance.operit.core.avatar.common.state.AvatarState
+import com.ai.assistance.operit.core.avatar.common.state.AvatarViseme
 import com.ai.assistance.operit.core.avatar.common.state.RealtimeAvatarState
 import java.io.File
 import kotlin.math.roundToLong
@@ -166,9 +167,16 @@ class MmdAvatarController(
     private fun composeExpression(state: RealtimeAvatarState): MmdExpressionFrame {
         val morphs = LinkedHashMap<String, Float>()
 
-        // --- lip sync (viseme slot chosen by mouth opening) ---
+        // --- lip sync ---
+        // Operit patch: the phoneme timeline owns the *shape* (viseme) while the live audio
+        // amplitude owns the *strength*. When no timeline is available (cloud TTS that never
+        // exposes phonemes) we fall back to the old graded opening so the mouth still moves.
         if (state.isSpeaking && state.mouthOpen > 0.01f) {
-            val vowel = pickVowel(state.mouthOpen)
+            val vowel = if (state.viseme != AvatarViseme.NONE) {
+                visemeToVowel(state.viseme)
+            } else {
+                pickVowel(state.mouthOpen)
+            }
             vowelMap[vowel]?.let { morphs[it] = state.mouthOpen }
         }
 
@@ -194,8 +202,8 @@ class MmdAvatarController(
     }
 
     private fun pickVowel(mouthOpen: Float): MmdMorphLibrary.Vowel {
-        // Map opening amount to a viseme. The real phoneme timeline will override this
-        // once the G2P pipeline lands; until then a graded opening reads as natural speech.
+        // Fallback used only when the phoneme timeline has no data (cloud TTS paths).
+        // A graded opening still reads as natural speech.
         return when {
             mouthOpen < 0.2f -> MmdMorphLibrary.Vowel.I
             mouthOpen < 0.4f -> MmdMorphLibrary.Vowel.U
@@ -203,6 +211,17 @@ class MmdAvatarController(
             mouthOpen < 0.8f -> MmdMorphLibrary.Vowel.O
             else -> MmdMorphLibrary.Vowel.A
         }
+    }
+
+    /** Operit patch: maps a renderer-independent viseme onto an MMD vowel morph slot. */
+    private fun visemeToVowel(viseme: AvatarViseme): MmdMorphLibrary.Vowel = when (viseme) {
+        AvatarViseme.A -> MmdMorphLibrary.Vowel.A
+        AvatarViseme.I -> MmdMorphLibrary.Vowel.I
+        AvatarViseme.U -> MmdMorphLibrary.Vowel.U
+        AvatarViseme.E -> MmdMorphLibrary.Vowel.E
+        AvatarViseme.O -> MmdMorphLibrary.Vowel.O
+        AvatarViseme.N -> MmdMorphLibrary.Vowel.N
+        AvatarViseme.NONE -> MmdMorphLibrary.Vowel.NONE
     }
 
     private fun emotionToSlot(emotion: AvatarEmotion): MmdMorphLibrary.Slot? = when (emotion) {

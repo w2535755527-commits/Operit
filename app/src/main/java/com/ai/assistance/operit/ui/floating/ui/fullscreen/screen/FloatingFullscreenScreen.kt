@@ -56,6 +56,7 @@ import androidx.compose.ui.zIndex
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.core.avatar.common.control.AvatarSettingKeys
 import com.ai.assistance.operit.core.avatar.common.state.AvatarEmotion
+import com.ai.assistance.operit.core.avatar.common.state.AvatarLipSyncBus
 import com.ai.assistance.operit.core.avatar.common.state.RealtimeAvatarStateComposer
 
 import com.ai.assistance.operit.core.avatar.common.view.AvatarView
@@ -292,14 +293,44 @@ fun FloatingFullscreenMode(floatContext: FloatContext) {
     ) {
         val controller = voiceAvatarController ?: return@LaunchedEffect
         if (!isVoiceAvatarEnabled) return@LaunchedEffect
-
         val request = viewModel.voiceAvatarMotionRequest
+        // Operit patch: while speech is playing, sample the live amplitude and the phoneme
+        // timeline every frame instead of applying a single static state. This is what makes the
+        // mouth follow the voice; the previous one-shot call always passed audioLevel = 0, which
+        // is why the mouth never moved.
+        if (isVoiceAvatarSpeaking) {
+            while (true) {
+                controller.applyRealtimeState(
+                    RealtimeAvatarStateComposer.fromEmotion(
+                        emotion = viewModel.voiceAvatarMotionRequest.emotion,
+                        speaking = true,
+                        audioLevel = AvatarLipSyncBus.currentLevel(),
+                        viseme = AvatarLipSyncBus.currentViseme()
+                    )
+                )
+                delay(33L)
+            }
+        }
         controller.applyRealtimeState(
             RealtimeAvatarStateComposer.fromEmotion(
                 emotion = request.emotion,
-                speaking = isVoiceAvatarSpeaking
+                speaking = false
             )
         )
+    }
+    // Operit patch: play a one-shot [action:xxx] animation when the model asks for one, then
+    // consume it so it is not replayed on the next recomposition.
+    LaunchedEffect(
+        voiceAvatarController,
+        isVoiceAvatarEnabled,
+        viewModel.voiceAvatarMotionRequest.action,
+        viewModel.voiceAvatarMotionRequest.sequence
+    ) {
+        val controller = voiceAvatarController ?: return@LaunchedEffect
+        if (!isVoiceAvatarEnabled) return@LaunchedEffect
+        val action = viewModel.voiceAvatarMotionRequest.action ?: return@LaunchedEffect
+        controller.playTrigger(action, loop = 1)
+        viewModel.consumeVoiceAvatarAction()
     }
     
     // 清理资源

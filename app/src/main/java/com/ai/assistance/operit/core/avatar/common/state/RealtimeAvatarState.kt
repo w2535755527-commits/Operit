@@ -9,6 +9,12 @@ data class RealtimeAvatarState(
     val emotionIntensity: Float = 0f,
     val isSpeaking: Boolean = false,
     val mouthOpen: Float = 0f,
+    /**
+     * Operit patch: the vowel shape the phoneme timeline wants right now. [AvatarViseme.NONE]
+     * means "no phoneme data", in which case renderers fall back to a purely amplitude-driven
+     * mouth. Renderers that can resolve vowel morphs should prefer this over [mouthOpen].
+     */
+    val viseme: AvatarViseme = AvatarViseme.NONE,
     val gazeX: Float = 0f,
     val gazeY: Float = 0f,
     val headYaw: Float = 0f,

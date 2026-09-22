@@ -3,7 +3,9 @@ package com.ai.assistance.operit.ui.floating.ui.fullscreen.viewmodel
 import android.content.Context
 import androidx.compose.runtime.*
 import com.ai.assistance.operit.R
+import com.ai.assistance.operit.core.avatar.common.state.AvatarActionTagParser
 import com.ai.assistance.operit.core.avatar.common.state.AvatarEmotion
+import com.ai.assistance.operit.core.avatar.common.state.AvatarLipSyncBus
 import com.ai.assistance.operit.data.model.ChatMessage
 import com.ai.assistance.operit.data.model.InputProcessingState
 import com.ai.assistance.operit.data.model.PromptFunctionType
@@ -32,6 +34,12 @@ private const val FULLSCREEN_TTS_CAPTURE_SUPPRESS_MS = 1200L
 data class VoiceAvatarMotionRequest(
     val emotion: AvatarEmotion = AvatarEmotion.IDLE,
     val triggerName: String? = null,
+    /**
+     * Operit patch: the raw `[action:xxx]` value found in the AI reply, if any. The screen plays
+     * it once through [AvatarController.playTrigger] and then calls
+     * [FloatingFullscreenModeViewModel.consumeVoiceAvatarAction] so it is not replayed.
+     */
+    val action: String? = null,
     val playOnce: Boolean = false,
     val sequence: Long = 0L
 )
@@ -673,12 +681,21 @@ class FloatingFullscreenModeViewModel(
                     return
                 }
                 lastHandledVoiceAvatarMessageKey = messageKey
-
-                val emotion = AvatarEmotionManager.analyzeEmotion(message.content)
-                if (emotion == AvatarEmotion.IDLE) {
+                // Operit patch: parse the explicit [emotion:xxx][action:yyy] directives first, so
+                // the model can steer the avatar deterministically instead of relying on keyword
+                // inference. Unknown values fall through to the legacy keyword analyzer.
+                val directives = AvatarActionTagParser.parse(message.content)
+                val emotion = directives.emotion
+                    ?: AvatarEmotionManager.analyzeEmotion(message.content)
+                val action = directives.action
+                if (emotion == AvatarEmotion.IDLE && action == null) {
                     resetVoiceAvatarToIdle()
                 } else {
-                    pushVoiceAvatarMotion(emotion = emotion, playOnce = true)
+                    pushVoiceAvatarMotion(
+                        emotion = emotion,
+                        action = action,
+                        playOnce = true
+                    )
                 }
             }
         }
@@ -709,15 +726,29 @@ class FloatingFullscreenModeViewModel(
     private fun pushVoiceAvatarMotion(
         emotion: AvatarEmotion,
         triggerName: String? = null,
+        action: String? = null,
         playOnce: Boolean
     ) {
         voiceAvatarSequence += 1
         voiceAvatarMotionRequest = VoiceAvatarMotionRequest(
             emotion = emotion,
             triggerName = triggerName,
+            action = action,
             playOnce = playOnce,
             sequence = voiceAvatarSequence
         )
+    }
+
+    /**
+     * Operit patch: clears the one-shot `[action:xxx]` after the screen has played it, so the
+     * same animation is not restarted on every recomposition.
+     */
+    fun consumeVoiceAvatarAction() {
+        val current = voiceAvatarMotionRequest
+        if (current.action == null) {
+            return
+        }
+        voiceAvatarMotionRequest = current.copy(action = null)
     }
 
     private fun startVoiceAvatarThinking() {
@@ -729,7 +760,9 @@ class FloatingFullscreenModeViewModel(
     }
 
     private fun stripVoiceAvatarTags(content: String): String {
-        return AvatarEmotionManager.stripXmlLikeTags(content)
+        // Operit patch: remove the [emotion:...] / [action:...] directives as well, otherwise the
+        // raw tags would be both displayed and sent to TTS.
+        return AvatarActionTagParser.strip(AvatarEmotionManager.stripXmlLikeTags(content))
     }
 }
 

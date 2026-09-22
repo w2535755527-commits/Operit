@@ -2,6 +2,8 @@ package com.ai.assistance.operit.api.voice
 
 import android.media.AudioAttributes
 import android.media.MediaPlayer
+import com.ai.assistance.operit.core.avatar.common.state.AvatarAudioMeter
+import com.ai.assistance.operit.core.avatar.common.state.AvatarLipSyncBus
 import com.ai.assistance.operit.util.AppLogger
 import java.io.File
 import java.io.FileInputStream
@@ -190,6 +192,8 @@ internal class QueuedTtsPlayback(
     private fun stopPlaybackOnly(): Boolean {
         return try {
             isPaused.set(false)
+            // Operit patch: an explicit stop must also clear the shared lip-sync state.
+            AvatarLipSyncBus.reset()
             mediaPlayer?.let {
                 if (it.isPlaying) {
                     it.stop()
@@ -208,11 +212,11 @@ internal class QueuedTtsPlayback(
         if (!isCurrent(prepared.request)) {
             return false
         }
-        playAudioFile(prepared.audioFile)
+        playAudioFile(prepared.audioFile, prepared.request.text, prepared.request.rate)
         return true
     }
 
-    private suspend fun playAudioFile(audioFile: File) {
+    private suspend fun playAudioFile(audioFile: File, text: String, rate: Float?) {
         if (!audioFile.exists() || audioFile.length() == 0L) {
             AppLogger.e(tag, "Audio file is invalid: ${audioFile.absolutePath}")
             return
@@ -237,17 +241,51 @@ internal class QueuedTtsPlayback(
                     mediaPlayer?.release()
                     mediaPlayer = mp
                     _isSpeaking.value = true
+                    // Operit patch: MediaPlayer gives us no PCM samples, so the mouth cannot be
+                    // driven by real amplitude here. Build an approximate timeline from the reply
+                    // text instead and stretch it once the player reports the real duration; the
+                    // avatar then at least follows the sentence rhythm instead of freezing.
+                    val duration = try {
+                        mp.duration.toLong()
+                    } catch (_: Exception) {
+                        0L
+                    }
+                    AvatarLipSyncBus.publishApproximateText(
+                        text = text,
+                        rate = rate ?: 1.0f,
+                        durationMillis = if (duration > 0L) duration else 0L
+                    )
                 }
             }
 
             mediaPlayer?.let {
                 while (it.isPlaying || isPaused.get()) {
+                    // Operit patch: advance the phoneme cursor with the real playback clock so the
+                    // mouth stays locked to the audio, and synthesize a small level so the mouth
+                    // opens at all (no PCM is available on this path).
+                    val position = try {
+                        it.currentPosition.toLong()
+                    } catch (_: Exception) {
+                        -1L
+                    }
+                    if (position >= 0L) {
+                        AvatarLipSyncBus.publishPositionMillis(position)
+                        val viseme = AvatarLipSyncBus.currentViseme()
+                        if (viseme != com.ai.assistance.operit.core.avatar.common.state.AvatarViseme.NONE) {
+                            AvatarAudioMeter.publish(0.75f)
+                        } else {
+                            AvatarAudioMeter.publish(0f)
+                        }
+                    }
                     delay(100)
                 }
             }
         } catch (e: Exception) {
             AppLogger.e(tag, "播放TTS音频失败", e)
         } finally {
+            // Operit patch: clear the shared lip-sync state so a stale timeline can never leak
+            // into the next utterance or into another provider.
+            AvatarLipSyncBus.reset()
             _isSpeaking.value = false
             isPaused.set(false)
             mediaPlayer?.apply {

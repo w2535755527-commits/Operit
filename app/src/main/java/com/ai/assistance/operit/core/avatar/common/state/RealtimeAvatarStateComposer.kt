@@ -8,11 +8,22 @@ object RealtimeAvatarStateComposer {
         speaking: Boolean = false,
         audioLevel: Float = 0f,
         gazeX: Float = 0f,
-        gazeY: Float = 0f
+        gazeY: Float = 0f,
+        viseme: AvatarViseme = AvatarViseme.NONE
     ): RealtimeAvatarState {
         val level = audioLevel.coerceIn(0f, 1f)
         val strength = intensity.coerceIn(0f, 1f)
-        val mouth = if (speaking) (0.12f + level * 0.88f).coerceIn(0f, 1f) else 0f
+        val mouth = when {
+            !speaking -> 0f
+            // Operit patch: when the phoneme timeline knows the vowel, the viseme decides the
+            // *shape* and the live amplitude decides the *strength*, so the mouth follows real
+            // speech instead of holding one graded opening.
+            viseme != AvatarViseme.NONE -> {
+                val shape = AvatarPhonemeTimeline.mouthOpenFor(viseme)
+                (shape * (0.55f + 0.45f * level)).coerceIn(0f, 1f)
+            }
+            else -> (0.12f + level * 0.88f).coerceIn(0f, 1f)
+        }
         val body = when (emotion) {
             AvatarEmotion.HAPPY, AvatarEmotion.SURPRISED -> 0.65f
             AvatarEmotion.THINKING, AvatarEmotion.CONFUSED -> 0.4f
@@ -24,6 +35,7 @@ object RealtimeAvatarStateComposer {
             emotionIntensity = strength,
             isSpeaking = speaking,
             mouthOpen = mouth,
+            viseme = viseme,
             gazeX = gazeX,
             gazeY = gazeY,
             headYaw = gazeX * 0.45f,
@@ -38,6 +50,9 @@ object RealtimeAvatarStateComposer {
         val t = amount.coerceIn(0f, 1f)
         fun mix(a: Float, b: Float) = a + (b - a) * t
         return target.copy(
+            // Operit patch: viseme is a discrete slot and must NOT be interpolated; it always
+            // follows the target so the mouth shape snaps to the phoneme that is sounding now.
+            viseme = target.viseme,
             emotionIntensity = mix(previous.emotionIntensity, target.emotionIntensity),
             mouthOpen = mix(previous.mouthOpen, target.mouthOpen),
             gazeX = mix(previous.gazeX, target.gazeX),

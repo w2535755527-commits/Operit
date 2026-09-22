@@ -10,6 +10,8 @@ import android.media.AudioAttributes
 import android.media.AudioFormat
 import android.media.AudioTrack
 import com.ai.assistance.operit.R
+import com.ai.assistance.operit.core.avatar.common.state.AvatarAudioMeter
+import com.ai.assistance.operit.core.avatar.common.state.AvatarLipSyncBus
 import com.ai.assistance.operit.data.preferences.SpeechServicesPreferences
 import com.ai.assistance.operit.util.AppLogger
 import java.io.BufferedInputStream
@@ -99,7 +101,11 @@ class VitsVoiceProvider(
     private data class PreparedSpeech(
         val request: SpeakRequest,
         val pcm: ShortArray,
-        val sampleRate: Int
+        val sampleRate: Int,
+        /** Operit patch: eSpeak IPA for this sentence, or null for non-eSpeak frontends. */
+        val phonemes: String? = null,
+        /** Operit patch: effective speaking rate, used to scale the phoneme timeline. */
+        val rate: Float = 1.0f
     )
 
     private class PackageLexicon(
@@ -198,6 +204,12 @@ class VitsVoiceProvider(
     private var currentAudioTrack: AudioTrack? = null
     private var playbackGeneration: Long = 0L
     private var paused = false
+    /**
+     * Operit patch: the IPA string produced by the most recent eSpeak tokenization. It is written
+     * and read on the same coroutine inside [prepareSpeech], then copied into [PreparedSpeech] so
+     * the playback coroutine can build a lip-sync timeline without re-running G2P.
+     */
+    private var lastPhonemes: String? = null
 
     private val _isInitialized = MutableStateFlow(false)
     override val isInitialized: Boolean
@@ -240,6 +252,13 @@ class VitsVoiceProvider(
 
                     val result = playbackMutex.withLock {
                         val generation = synchronized(stateLock) { playbackGeneration }
+                        // Operit patch: build the lip-sync timeline from the real phonemes and
+                        // publish it before the first sample is written, so the mouth is ready.
+                        if (prepared.phonemes != null) {
+                            AvatarLipSyncBus.publishIpa(prepared.phonemes, prepared.rate)
+                        } else {
+                            AvatarLipSyncBus.reset()
+                        }
                         playPcm16(prepared.pcm, prepared.sampleRate, generation)
                     }
                     prepared.request.completion.complete(result)
@@ -359,7 +378,13 @@ class VitsVoiceProvider(
                 return null
             }
 
-            return PreparedSpeech(request, pcm, activeConfig.sampleRate)
+            return PreparedSpeech(
+                request = request,
+                pcm = pcm,
+                sampleRate = activeConfig.sampleRate,
+                phonemes = lastPhonemes,
+                rate = effectiveRate
+            )
         } catch (e: Exception) {
             AppLogger.e(TAG, "VITS TTS speak failed", e)
             if (e is TtsException) throw e
@@ -481,7 +506,6 @@ class VitsVoiceProvider(
         try {
             track.play()
             _isSpeaking.value = true
-
             var offset = 0
             while (offset < pcm.size) {
                 if (!isCurrentPlayback(generation)) return false
@@ -497,19 +521,32 @@ class VitsVoiceProvider(
                     delay(10)
                     continue
                 }
+                // Operit patch: report the real PCM energy of the chunk we just handed to the
+                // mixer, and advance the phoneme cursor with the audio clock (playbackHeadPosition
+                // is in frames, so dividing by the sample rate gives the sounding position).
+                AvatarAudioMeter.publishPcm16(pcm, offset, written)
+                AvatarLipSyncBus.publishPositionMillis(
+                    track.playbackHeadPosition.toLong() * 1000L / sampleRate.coerceAtLeast(1)
+                )
                 offset += written
             }
-
             while (isCurrentPlayback(generation) && track.playbackHeadPosition < pcm.size) {
+                // Operit patch: keep both the amplitude and the cursor live while the mixer drains
+                // the tail of the buffer, otherwise the mouth would freeze on the last phoneme.
+                AvatarLipSyncBus.publishPositionMillis(
+                    track.playbackHeadPosition.toLong() * 1000L / sampleRate.coerceAtLeast(1)
+                )
                 if (isPlaybackPaused(generation)) {
                     delay(50)
                 } else {
                     delay(20)
                 }
             }
-
             return isCurrentPlayback(generation)
         } finally {
+            // Operit patch: never leave a stale timeline/level behind, or the avatar would keep
+            // moving after the audio has stopped.
+            AvatarLipSyncBus.reset()
             synchronized(stateLock) {
                 if (currentAudioTrack === track) {
                     currentAudioTrack = null
@@ -829,6 +866,9 @@ class VitsVoiceProvider(
         activeConfig: RuntimeConfig,
         extraParams: Map<String, String>
     ): LongArray {
+        // Operit patch: clear any IPA from a previous sentence so the lip-sync timeline can never
+        // be built from stale phonemes (non-eSpeak frontends leave this null).
+        lastPhonemes = null
         val directIds = listOf("token_ids", "phoneme_ids", "ids")
             .firstNotNullOfOrNull { key -> extraParams[key]?.takeIf { it.isNotBlank() } }
         if (directIds != null) {
@@ -873,6 +913,8 @@ class VitsVoiceProvider(
                     )
                 }
                 AppLogger.d(TAG, "eSpeak voice=$voice phonemes=\"${speechPreview(phonemes)}\"")
+                // Operit patch: keep the IPA so the playback loop can drive the avatar mouth.
+                lastPhonemes = phonemes
                 tokenizeSymbolsByMap(phonemes, activeConfig.tokenMap, piperBlank)
             }
             else -> throw TtsException(context.getString(R.string.vits_tts_error_frontend_unsupported, activeConfig.frontend))

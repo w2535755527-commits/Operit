@@ -24,6 +24,8 @@ object MmdMorphLibrary {
 
     /** Vowel visemes used for phoneme-driven lip sync. */
     enum class Vowel {
+        /** Operit patch: no vowel shape; the renderer should close the mouth. */
+        NONE,
         A,
         I,
         U,
