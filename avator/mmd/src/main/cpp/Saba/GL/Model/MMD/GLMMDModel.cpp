@@ -321,7 +321,6 @@ namespace saba
 			m_mmdModel->UpdatePhysicsAnimation((float)elapsed);
 			updatePhysicsAnimPerf.Stop();
 		}
-		Perf updatePhysicsAnimPerf;
 
 		// Update node animation (after physics animation)
 		updateNodeAnimPerf.Start();

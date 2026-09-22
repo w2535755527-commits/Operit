@@ -351,15 +351,16 @@ private class NativeMmdRenderer(
             return
         }
         val cleanNames = ArrayList<String>(count)
-        val cleanWeights = FloatArray(count)
+        val cleanWeights = ArrayList<Float>(count)
         for (i in 0 until count) {
             val key = names[i].trim()
             if (key.isEmpty()) {
                 continue
             }
+            val w = weights[i].coerceIn(0f, 1f)
             cleanNames.add(key)
-            cleanWeights[i] = weights[i].coerceIn(0f, 1f)
-            morphOverrides[key] = cleanWeights[i]
+            cleanWeights.add(w)
+            morphOverrides[key] = w
         }
         if (cleanNames.isEmpty()) {
             return
@@ -368,7 +369,7 @@ private class NativeMmdRenderer(
             MmdNative.nativeSetMorphWeights(
                 rendererHandle,
                 cleanNames.toTypedArray(),
-                cleanWeights
+                cleanWeights.toFloatArray()
             )
         }
     }

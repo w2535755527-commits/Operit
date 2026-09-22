@@ -79,9 +79,6 @@ class MmdAvatarController(
     @Volatile
     private var gazeY: Float = 0f
 
-    @Volatile
-    private var lastExpression: MmdExpressionFrame = MmdExpressionFrame()
-
     override val availableAnimations: List<String>
         get() = model.displayMotionNames
 
@@ -159,8 +156,7 @@ class MmdAvatarController(
         val state = realtimeState.normalized()
         gazeX = state.gazeX
         gazeY = state.gazeY
-        lastExpression = composeExpression(state)
-        _expressionFrame.value = lastExpression
+        _expressionFrame.value = composeExpression(state)
     }
 
     /**

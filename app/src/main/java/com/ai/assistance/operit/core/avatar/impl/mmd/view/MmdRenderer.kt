@@ -127,8 +127,18 @@ fun MmdRenderer(
                     )
                 }
                 val headBone = mmdController.resolvedHeadBone()
-                if (headBone != null) {
-                    view.setNodeRotation(headBone, frame.headPitchDeg, frame.headYawDeg, 0f)
+                if (headBone != null && frame.headYawDeg != 0f) {
+                    // NOTE: ApplyLookAtOverride() in C++ runs after node rotation overrides and
+                    // overwrites the head bone, so driving the head through setNodeRotation()
+                    // would be silently cancelled. Route head tracking through the native
+                    // look-at channel instead; it already provides smoothing and a wander gaze
+                    // when the target returns to zero.
+                    view.setLookAt(
+                        (frame.headYawDeg / 28f).coerceIn(-1f, 1f),
+                        (frame.headPitchDeg / 18f).coerceIn(-1f, 1f)
+                    )
+                } else {
+                    view.setLookAt(0f, 0f)
                 }
             }
         )
