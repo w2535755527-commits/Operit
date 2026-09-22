@@ -7900,6 +7900,7 @@
     <string name="vits_tts_error_unknown_token">VITS/Piper TTS 配置中找不到字符或 phoneme 的 id：%1$s</string>
     <string name="vits_tts_error_raw_text_requires_lexicon">VITS/Piper TTS 当前配置需要 lexicon.txt 才能把原始文本转换为 token。请把 lexicon.txt 放入模型包，或把 frontend 设为 direct_symbols，或把 text_mode 设为 token_ids/phoneme_ids。</string>
     <string name="vits_tts_error_frontend_unsupported">VITS/Piper TTS 不支持当前 frontend：%1$s</string>
+    <string name="vits_tts_error_espeak_voice_not_set">VITS/Piper TTS 的 eSpeak voice 未设置。</string>
     <string name="vits_tts_error_lexicon_parse_failed">VITS/Piper TTS lexicon.txt 解析失败，行号：%1$d</string>
     <string name="vits_tts_error_lexicon_duplicate_word">VITS/Piper TTS lexicon.txt 中存在重复词条：%1$s</string>
     <string name="vits_tts_error_lexicon_unknown_token">VITS/Piper TTS lexicon.txt 中的 token 不在配置映射里：%1$s</string>

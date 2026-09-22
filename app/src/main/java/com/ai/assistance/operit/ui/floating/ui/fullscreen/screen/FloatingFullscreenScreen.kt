@@ -56,6 +56,8 @@ import androidx.compose.ui.zIndex
 import com.ai.assistance.operit.R
 import com.ai.assistance.operit.core.avatar.common.control.AvatarSettingKeys
 import com.ai.assistance.operit.core.avatar.common.state.AvatarEmotion
+import com.ai.assistance.operit.core.avatar.common.state.RealtimeAvatarStateComposer
+
 import com.ai.assistance.operit.core.avatar.common.view.AvatarView
 import com.ai.assistance.operit.core.avatar.impl.factory.AvatarControllerFactoryImpl
 import com.ai.assistance.operit.core.avatar.impl.factory.AvatarModelFactoryImpl
@@ -186,8 +188,9 @@ fun FloatingFullscreenMode(floatContext: FloatContext) {
     
     val wakePrefs = remember { WakeWordPreferences(context.applicationContext) }
     val autoNewChatGroup by wakePrefs.autoNewChatGroupFlow.collectAsState(initial = WakeWordPreferences.DEFAULT_AUTO_NEW_CHAT_GROUP)
-    
     val volumeLevel by viewModel.volumeLevelFlow.collectAsState()
+    val isVoiceAvatarSpeaking by viewModel.voiceAvatarSpeakingStateFlow.collectAsState(initial = false)
+
     
     var pendingSpeechPreview by remember { mutableStateOf<String?>(null) }
     var lastUserMessageTimestampBeforeSpeech by remember { mutableStateOf<Long?>(null) }
@@ -281,39 +284,22 @@ fun FloatingFullscreenMode(floatContext: FloatContext) {
         }
     }
 
-    LaunchedEffect(voiceAvatarController, isVoiceAvatarEnabled, viewModel.voiceAvatarMotionRequest.sequence) {
+    LaunchedEffect(
+        voiceAvatarController,
+        isVoiceAvatarEnabled,
+        viewModel.voiceAvatarMotionRequest.emotion,
+        isVoiceAvatarSpeaking
+    ) {
         val controller = voiceAvatarController ?: return@LaunchedEffect
-        if (!isVoiceAvatarEnabled) {
-            return@LaunchedEffect
-        }
+        if (!isVoiceAvatarEnabled) return@LaunchedEffect
 
         val request = viewModel.voiceAvatarMotionRequest
-        val triggerName = request.triggerName?.trim().orEmpty()
-        if (triggerName.isNotEmpty()) {
-            val handled = controller.playTrigger(triggerName, loop = if (request.playOnce) 1 else 0)
-            if (handled) {
-                if (request.playOnce) {
-                    val durationMillis =
-                        controller.estimateTriggerDurationMillis(triggerName)
-                            ?: controller.estimateEmotionDurationMillis(request.emotion)
-                    durationMillis?.let {
-                        delay(durationMillis)
-                        controller.setEmotion(AvatarEmotion.IDLE)
-                    }
-                }
-                return@LaunchedEffect
-            }
-        }
-
-        if (request.playOnce) {
-            controller.playEmotion(request.emotion, loop = 1)
-            controller.estimateEmotionDurationMillis(request.emotion)?.let { durationMillis ->
-                delay(durationMillis)
-                controller.setEmotion(AvatarEmotion.IDLE)
-            }
-        } else {
-            controller.setEmotion(request.emotion)
-        }
+        controller.applyRealtimeState(
+            RealtimeAvatarStateComposer.fromEmotion(
+                emotion = request.emotion,
+                speaking = isVoiceAvatarSpeaking
+            )
+        )
     }
     
     // 清理资源

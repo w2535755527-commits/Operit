@@ -115,6 +115,7 @@ class FloatingFullscreenModeViewModel(
     val hasFocus: Boolean get() = speechManager.hasFocus
     // UI 用到 volumeFlow 和 recognitionResultFlow
     val speechService get() = speechManager.speechService
+    val voiceAvatarSpeakingStateFlow get() = speechManager.voiceService.speakingStateFlow
     val volumeLevelFlow get() = speechManager.volumeLevelFlow
     val recognitionResultFlow get() = speechManager.recognitionResultFlow
 
@@ -673,16 +674,6 @@ class FloatingFullscreenModeViewModel(
                 }
                 lastHandledVoiceAvatarMessageKey = messageKey
 
-                val triggerName = AvatarEmotionManager.extractMoodTagValue(message.content)
-                if (!triggerName.isNullOrBlank()) {
-                    pushVoiceAvatarMotion(
-                        emotion = AvatarEmotionManager.analyzeEmotion(message.content),
-                        triggerName = triggerName,
-                        playOnce = true
-                    )
-                    return
-                }
-
                 val emotion = AvatarEmotionManager.analyzeEmotion(message.content)
                 if (emotion == AvatarEmotion.IDLE) {
                     resetVoiceAvatarToIdle()
@@ -699,7 +690,6 @@ class FloatingFullscreenModeViewModel(
     ) {
         val shouldResetThinking =
             (state is InputProcessingState.Idle || state is InputProcessingState.Error) &&
-                voiceAvatarMotionRequest.triggerName.isNullOrBlank() &&
                 voiceAvatarMotionRequest.emotion == AvatarEmotion.THINKING
         if (!shouldResetThinking) {
             return

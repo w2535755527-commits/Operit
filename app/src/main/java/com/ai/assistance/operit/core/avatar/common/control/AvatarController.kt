@@ -2,6 +2,7 @@ package com.ai.assistance.operit.core.avatar.common.control
 
 import com.ai.assistance.operit.core.avatar.common.state.AvatarEmotion
 import com.ai.assistance.operit.core.avatar.common.state.AvatarState
+import com.ai.assistance.operit.core.avatar.common.state.RealtimeAvatarState
 import kotlinx.coroutines.flow.StateFlow
 
 /**
@@ -72,6 +73,15 @@ interface AvatarController {
      * @param y The normalized y-coordinate (-1 to 1).
      */
     fun lookAt(x: Float, y: Float)
+
+    /**
+     * Applies continuous controls produced by the realtime avatar state machine.
+     * Existing renderers may implement only the controls they support.
+     */
+    fun applyRealtimeState(realtimeState: RealtimeAvatarState) {
+        val state = realtimeState.normalized()
+        lookAt(state.gazeX, state.gazeY)
+    }
     
     /**
      * Updates avatar-specific settings, such as scale or position.

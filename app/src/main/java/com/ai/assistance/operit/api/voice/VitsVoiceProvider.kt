@@ -22,6 +22,7 @@ import java.nio.FloatBuffer
 import java.nio.IntBuffer
 import java.nio.LongBuffer
 import java.security.MessageDigest
+import java.text.Normalizer
 import java.util.Locale
 import java.util.concurrent.atomic.AtomicLong
 import java.util.zip.ZipInputStream
@@ -61,6 +62,7 @@ class VitsVoiceProvider(
         val tokenMap: Map<String, List<Long>>,
         val lexicon: PackageLexicon?,
         val frontend: String,
+        val espeakVoice: String?,
         val addBlank: Boolean,
         val blankId: Long?,
         val bosIds: List<Long>,
@@ -258,6 +260,9 @@ class VitsVoiceProvider(
                 val packageRoot = resolvePackageRoot(config.packagePath)
                 val packageFiles = resolvePackageFiles(packageRoot)
                 val parsedConfig = parseRuntimeConfig(packageFiles)
+                if (parsedConfig.frontend.equals("espeak", ignoreCase = true)) {
+                    EspeakPhonemizer.initialize(context.applicationContext)
+                }
                 val opts = OrtSession.SessionOptions().apply {
                     val threadCount = optionalInt("threads") ?: 1
                     setIntraOpNumThreads(threadCount)
@@ -790,14 +795,20 @@ class VitsVoiceProvider(
         val addBlank = optionalBool("add_blank")
             ?: optionalBool("interleave_blank")
             ?: (tokenSource?.first == "phoneme_id_map" && blankId != null)
-        val frontend = optionalString("frontend").ifBlank { "lexicon" }
+        val frontend = optionalString("frontend").ifBlank {
+            root.optString("phoneme_type", "").trim().ifBlank { "lexicon" }
+        }
         val lexicon = packageFiles.lexiconFile?.let { loadLexicon(it, tokenMap) }
+        val espeakVoice = optionalString("espeak_voice").ifBlank {
+            root.optJSONObject("espeak")?.optString("voice", "")?.trim().orEmpty()
+        }.ifBlank { null }
 
         return RuntimeConfig(
             sampleRate = sampleRate,
             tokenMap = tokenMap,
             lexicon = lexicon,
             frontend = frontend,
+            espeakVoice = espeakVoice,
             addBlank = addBlank,
             blankId = blankId,
             bosIds = optionalIds("bos_token_ids")
@@ -829,7 +840,14 @@ class VitsVoiceProvider(
             return parseIds(text, "text token ids").toLongArray()
         }
 
-        val bodyIds = when (activeConfig.frontend.lowercase(Locale.ROOT)) {
+        val frontend = activeConfig.frontend.lowercase(Locale.ROOT)
+        val piperBlank = if (activeConfig.addBlank && frontend in setOf("direct_symbols", "espeak")) {
+            activeConfig.blankId
+                ?: throw TtsException(context.getString(R.string.vits_tts_error_blank_token_not_set))
+        } else {
+            null
+        }
+        val bodyIds = when (frontend) {
             "lexicon" -> {
                 val lexicon = activeConfig.lexicon
                     ?: throw TtsException(context.getString(R.string.vits_tts_error_raw_text_requires_lexicon))
@@ -839,7 +857,24 @@ class VitsVoiceProvider(
                     throw TtsException(context.getString(R.string.vits_tts_error_tokenize_failed, e.message.orEmpty()), cause = e)
                 }
             }
-            "direct_symbols" -> tokenizeSymbolsByMap(text, activeConfig.tokenMap)
+            "direct_symbols" -> tokenizeSymbolsByMap(text, activeConfig.tokenMap, piperBlank)
+            "espeak" -> {
+                val voice = activeConfig.espeakVoice
+                    ?: throw TtsException(context.getString(R.string.vits_tts_error_espeak_voice_not_set))
+                val phonemes = try {
+                    Normalizer.normalize(
+                        EspeakPhonemizer.phonemize(text, voice),
+                        Normalizer.Form.NFD
+                    )
+                } catch (e: Exception) {
+                    throw TtsException(
+                        context.getString(R.string.vits_tts_error_tokenize_failed, e.message.orEmpty()),
+                        cause = e
+                    )
+                }
+                AppLogger.d(TAG, "eSpeak voice=$voice phonemes=\"${speechPreview(phonemes)}\"")
+                tokenizeSymbolsByMap(phonemes, activeConfig.tokenMap, piperBlank)
+            }
             else -> throw TtsException(context.getString(R.string.vits_tts_error_frontend_unsupported, activeConfig.frontend))
         }
 
@@ -847,10 +882,13 @@ class VitsVoiceProvider(
 
         val ids = ArrayList<Long>()
         ids.addAll(activeConfig.bosIds)
+        if (piperBlank != null && activeConfig.bosIds.isNotEmpty()) {
+            ids.add(piperBlank)
+        }
         ids.addAll(bodyIds.toList())
         ids.addAll(activeConfig.eosIds)
 
-        if (activeConfig.addBlank && ids.isNotEmpty()) {
+        if (activeConfig.addBlank && piperBlank == null && ids.isNotEmpty()) {
             val blank = activeConfig.blankId
                 ?: throw TtsException(context.getString(R.string.vits_tts_error_blank_token_not_set))
             val withBlank = ArrayList<Long>(ids.size * 2 - 1)
@@ -1338,7 +1376,11 @@ class VitsVoiceProvider(
         return raw.trim().removePrefix("file://")
     }
 
-    private fun tokenizeSymbolsByMap(text: String, tokenMap: Map<String, List<Long>>): LongArray {
+    private fun tokenizeSymbolsByMap(
+        text: String,
+        tokenMap: Map<String, List<Long>>,
+        piperBlank: Long? = null
+    ): LongArray {
         val sortedKeys = tokenMap.keys
             .filter { it.isNotEmpty() }
             .sortedByDescending { it.length }
@@ -1354,6 +1396,9 @@ class VitsVoiceProvider(
                 )
             )
             result.addAll(tokenMap.getValue(matched))
+            if (piperBlank != null) {
+                result.add(piperBlank)
+            }
             index += matched.length
         }
         return result.toLongArray()

@@ -8148,6 +8148,7 @@
     <string name="vits_tts_error_unknown_token">ID not found for character or phoneme in VITS/Piper TTS config: %1$s</string>
     <string name="vits_tts_error_raw_text_requires_lexicon">The current VITS/Piper TTS configuration requires lexicon.txt to convert raw text to tokens. Add lexicon.txt to the package, set frontend to direct_symbols, or set text_mode to token_ids/phoneme_ids.</string>
     <string name="vits_tts_error_frontend_unsupported">Unsupported VITS/Piper TTS frontend: %1$s</string>
+    <string name="vits_tts_error_espeak_voice_not_set">The eSpeak voice is not set for this VITS/Piper TTS model.</string>
     <string name="vits_tts_error_lexicon_parse_failed">Failed to parse VITS/Piper TTS lexicon.txt at line: %1$d</string>
     <string name="vits_tts_error_lexicon_duplicate_word">Duplicate word in VITS/Piper TTS lexicon.txt: %1$s</string>
     <string name="vits_tts_error_lexicon_unknown_token">Token in VITS/Piper TTS lexicon.txt is not present in the config mapping: %1$s</string>
